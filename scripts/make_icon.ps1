@@ -2,9 +2,10 @@ $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Drawing
 
-$source = Join-Path $PSScriptRoot "fish-icon.png"
-$png256 = Join-Path $PSScriptRoot "fish-icon-256.png"
-$ico = Join-Path $PSScriptRoot "fish.ico"
+$assets = Join-Path (Split-Path $PSScriptRoot -Parent) 'assets'
+$source = Join-Path $assets "fish-icon.png"
+$png256 = Join-Path $assets "fish-icon-256.png"
+$ico = Join-Path $assets "fish.ico"
 
 $image = [System.Drawing.Image]::FromFile($source)
 $cleaned = New-Object System.Drawing.Bitmap -ArgumentList $image.Width, $image.Height, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)

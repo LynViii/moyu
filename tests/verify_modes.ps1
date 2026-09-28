@@ -45,9 +45,13 @@ try {
     if ($null -ne $introType.GetField('launchTimer', $flags).GetValue($form)) { throw 'Cancel failed' }
     $start.PerformClick()
     $delayWait = [Diagnostics.Stopwatch]::StartNew()
-    while ($delayWait.ElapsedMilliseconds -lt 5400) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 10 }
+    while ($delayWait.ElapsedMilliseconds -lt 10000 -and $null -eq $introType.GetField('fishMode', $flags).GetValue($form)) {
+        [Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 10
+    }
     $launched = $introType.GetField('fishMode', $flags).GetValue($form)
     if ($null -eq $launched) { throw 'Delayed launch failed' }
+    if ($delayWait.ElapsedMilliseconds -lt 5000) { throw 'Launched before countdown deadline' }
     $type.GetMethod('Stop').Invoke($launched, @()) | Out-Null
     if ([string]::IsNullOrEmpty($introType.GetField('sessionSummary', $flags).GetValue($form).Text)) { throw 'Summary missing' }
     Write-Output 'PASS: CLI, custom duration and speed persistence, delayed launch/cancel, elapsed summary'

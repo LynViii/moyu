@@ -1,11 +1,11 @@
 *.exe
-!摸鱼.exe
 *.pfx
 *.p12
 *.key
 *.tmp
 settings*.xml
 .build/
+dist/
 tests/*.png
 tests/settings*.xml
 fish-icon-256.png.bak
