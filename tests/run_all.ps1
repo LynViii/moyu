@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-foreach ($test in @('verify_modes.ps1', 'verify_scenes.ps1', 'verify_executable.ps1')) {
+foreach ($test in @('verify_modes.ps1', 'verify_scenes.ps1', 'verify_executable.ps1', 'verify_fixes.ps1')) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $test)
     if ($LASTEXITCODE -ne 0) { throw "Failed: $test" }
 }

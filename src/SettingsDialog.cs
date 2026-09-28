@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Windows.Forms;
+using System.Collections.Generic;
 
 namespace WindowsFish
 {
@@ -17,7 +18,7 @@ namespace WindowsFish
         private readonly NumericUpDown seconds = new NumericUpDown { Minimum = 1, Maximum = 60, Dock = DockStyle.Fill };
         private readonly CheckBox eco = new CheckBox { Text = "节能动画", AutoSize = true };
         private readonly CheckBox delay = new CheckBox { Text = "启用启动倒计时", AutoSize = true };
-        private readonly string[] monitorNames;
+        private readonly List<string> monitorNames = new List<string>();
         internal Preferences Result { get; private set; }
 
         internal SettingsDialog(Preferences current)
@@ -34,6 +35,7 @@ namespace WindowsFish
             MaximizeBox = false;
             BackColor = Color.FromArgb(248, 248, 248);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 1, RowCount = 2 };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var tabs = new TabControl { Dock = DockStyle.Fill };
@@ -44,13 +46,17 @@ namespace WindowsFish
             Row(appearance, "文字大小", textSize);
             var display = Page(tabs, "显示与启动");
             var screens = Screen.AllScreens;
-            monitorNames = new string[screens.Length + 1];
-            monitorNames[0] = "";
+            monitorNames.Add("");
             for (int i = 0; i < screens.Length; i++)
             {
-                monitorNames[i + 1] = screens[i].DeviceName;
+                monitorNames.Add(screens[i].DeviceName);
                 monitor.Items.Add(string.Format("{0}  {1} × {2}{3}", screens[i].DeviceName,
                     screens[i].Bounds.Width, screens[i].Bounds.Height, screens[i].Primary ? "（主屏）" : ""));
+            }
+            if (!string.IsNullOrEmpty(draft.Monitor) && !monitorNames.Contains(draft.Monitor))
+            {
+                monitorNames.Add(draft.Monitor);
+                monitor.Items.Add(draft.Monitor + "（当前未连接）");
             }
             Row(display, "状态显示器", monitor);
             Row(display, "延迟启动", delay);
@@ -70,7 +76,10 @@ namespace WindowsFish
             about.Controls.Add(text);
             tabs.TabPages.Add(about);
             root.Controls.Add(tabs, 0, 0);
-            var footer = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(0, 12, 0, 0) };
+            var footer = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Padding = new Padding(0, 12, 0, 0) };
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
             var apply = new Button { Text = "应用", Size = new Size(88, 36) };
             var cancel = new Button { Text = "取消", Size = new Size(88, 36), DialogResult = DialogResult.Cancel };
             var reset = new Button { Text = "恢复默认", Size = new Size(112, 36) };
@@ -79,7 +88,8 @@ namespace WindowsFish
                 if (MessageBox.Show(this, "恢复所有默认选项？点击应用后生效。", "恢复默认", MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question) == DialogResult.Yes) ResetDraft();
             };
-            footer.Controls.Add(apply); footer.Controls.Add(cancel); footer.Controls.Add(reset);
+            apply.Dock = cancel.Dock = reset.Dock = DockStyle.Fill;
+            footer.Controls.Add(reset, 0, 0); footer.Controls.Add(cancel, 1, 0); footer.Controls.Add(apply, 2, 0);
             root.Controls.Add(footer, 0, 1);
             Controls.Add(root);
             AcceptButton = apply;
@@ -96,6 +106,16 @@ namespace WindowsFish
                 MinimumSize = new Size((int)(480 * scale), (int)(380 * scale));
                 palette.ItemHeight = (int)Math.Ceiling(Font.GetHeight(graphics) + 8 * scale);
             }
+            Shown += delegate {
+                FitToWorkArea(Screen.FromControl(Owner ?? this).WorkingArea);
+            };
+        }
+
+        internal void FitToWorkArea(Rectangle area)
+        {
+            MinimumSize = new Size(Math.Min(MinimumSize.Width, area.Width), Math.Min(MinimumSize.Height, area.Height));
+            Size = new Size(Math.Min(Width, area.Width), Math.Min(Height, area.Height));
+            Location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)), Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
         }
 
         private void DrawPalette(object sender, DrawItemEventArgs e)
@@ -151,7 +171,7 @@ namespace WindowsFish
             palette.SelectedIndex = Array.IndexOf(new[] { "auto", "blue", "black", "light" }, draft.Palette);
             language.SelectedIndex = draft.Language == "en" ? 1 : 0;
             textSize.SelectedIndex = draft.TextSize;
-            monitor.SelectedIndex = Math.Max(0, Array.IndexOf(monitorNames, draft.Monitor));
+            monitor.SelectedIndex = Math.Max(0, monitorNames.IndexOf(draft.Monitor));
             seconds.Value = draft.DelaySeconds;
             delay.Checked = draft.DelayStart;
             seconds.Enabled = delay.Checked;

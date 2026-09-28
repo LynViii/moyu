@@ -109,7 +109,7 @@ namespace WindowsFish
             return settings;
         }
 
-        internal void Save(string path)
+        internal bool Save(string path)
         {
             string temporary = path + ".tmp";
             try
@@ -118,8 +118,14 @@ namespace WindowsFish
                 new XDocument(ToXml()).Save(temporary);
                 if (File.Exists(path)) File.Replace(temporary, path, null);
                 else File.Move(temporary, path);
+                return true;
             }
-            catch (Exception error) { Trace.WriteLine(error.Message); }
+            catch (Exception error) { Trace.WriteLine(error.Message); return false; }
+            finally
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); }
+                catch (Exception error) { Trace.WriteLine(error.Message); }
+            }
         }
 
         internal XElement ToXml()
@@ -154,6 +160,11 @@ namespace WindowsFish
         private Stopwatch launchClock;
         private readonly Stopwatch sessionClock = new Stopwatch();
         private Label sessionSummary;
+        private Label saveWarning;
+        private Panel content;
+        private Panel footer;
+        private float layoutScale = 1F;
+        internal Control.ControlCollection ContentControls { get { return content == null ? Controls : content.Controls; } }
         private double SpeedFactor { get { return new[] { 0.75D, 1D, 1.5D }[speedChoice.SelectedIndex]; } }
         private static readonly Color Accent = Color.FromArgb(0, 111, 116);
         private Preferences preferences;
@@ -167,7 +178,7 @@ namespace WindowsFish
             this.settingsPath = settingsPath;
             preferences = Preferences.Load(settingsPath);
             AutoScaleMode = AutoScaleMode.None;
-            FormBorderStyle = FormBorderStyle.FixedSingle;
+            FormBorderStyle = FormBorderStyle.Sizable;
             Text = "摸鱼";
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(720, 450);
@@ -180,6 +191,8 @@ namespace WindowsFish
             BuildLayout();
             using (Graphics graphics = CreateGraphics())
                 ApplyLayoutScale(graphics.DpiX / 96F);
+            BuildScrollableLayout();
+            FitToWorkArea(Screen.FromControl(this).WorkingArea);
             ready = true;
         }
 
@@ -190,6 +203,7 @@ namespace WindowsFish
             Show();
             WindowState = FormWindowState.Normal;
             Rectangle area = Screen.FromControl(this).WorkingArea;
+            FitToWorkArea(area);
             if (!area.Contains(Bounds)) Location = new Point(area.Left + Math.Max(0, (area.Width - Width) / 2),
                 area.Top + Math.Max(0, (area.Height - Height) / 2));
             Activate();
@@ -228,7 +242,7 @@ namespace WindowsFish
             ready = false;
             try
             {
-                foreach (Control control in Controls)
+                foreach (Control control in ContentControls)
                 {
                     var button = control as Button;
                     var state = button == null ? null : button.Tag as UpdateScreenMode;
@@ -254,7 +268,9 @@ namespace WindowsFish
             preferences.BlackoutSecondary = blackoutSecondary.Checked;
             preferences.Speed = speedChoice.SelectedIndex;
             preferences.DelayStart = delayStart.Checked;
-            preferences.Save(settingsPath);
+            bool saved = preferences.Save(settingsPath);
+            if (saveWarning != null)
+                saveWarning.Text = saved ? "" : "本次已生效，但未能记住设置。";
         }
 
         private int SelectedMinutes
@@ -264,6 +280,7 @@ namespace WindowsFish
 
         private void ApplyLayoutScale(float scale)
         {
+            layoutScale = scale;
             // Point fonts already follow DPI; only scale logical pixel bounds.
             SuspendLayout();
             foreach (Control control in Controls)
@@ -274,8 +291,49 @@ namespace WindowsFish
                     (int)Math.Round(r.Height * scale));
             }
             MinimumSize = Size.Empty;
-            ClientSize = new Size((int)Math.Round(720 * scale), (int)Math.Round(520 * scale));
+            ClientSize = new Size((int)Math.Round(720 * scale), (int)Math.Round(600 * scale));
             ResumeLayout(false);
+        }
+
+        private void BuildScrollableLayout()
+        {
+            var controls = new List<Control>();
+            foreach (Control control in Controls) controls.Add(control);
+            content = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            footer = new Panel { Dock = DockStyle.Bottom, Height = (int)(110 * layoutScale) };
+            foreach (Control control in controls)
+                if (control != startButton && control != sessionSummary) content.Controls.Add(control);
+            footer.Controls.Add(startButton);
+            footer.Controls.Add(sessionSummary);
+            saveWarning = new Label { ForeColor = Color.FromArgb(160, 45, 40), TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
+            footer.Controls.Add(saveWarning);
+            content.AutoScrollMinSize = new Size((int)(710 * layoutScale), (int)(490 * layoutScale));
+            Controls.Add(content);
+            Controls.Add(footer);
+            footer.SizeChanged += delegate { LayoutFooter(); };
+            sessionSummary.TextChanged += delegate { LayoutFooter(); };
+            saveWarning.TextChanged += delegate { LayoutFooter(); };
+            LayoutFooter();
+        }
+
+        private void LayoutFooter()
+        {
+            int logicalHeight = !string.IsNullOrEmpty(saveWarning.Text) ? 110 : !string.IsNullOrEmpty(sessionSummary.Text) ? 82 : 62;
+            footer.Height = (int)(logicalHeight * layoutScale);
+            int margin = (int)(16 * layoutScale);
+            int width = Math.Max(1, footer.ClientSize.Width - margin * 2);
+            int buttonWidth = Math.Min((int)(220 * layoutScale), width);
+            startButton.SetBounds((footer.ClientSize.Width - buttonWidth) / 2, (int)(8 * layoutScale), buttonWidth, (int)(42 * layoutScale));
+            sessionSummary.SetBounds(margin, (int)(54 * layoutScale), width, (int)(24 * layoutScale));
+            saveWarning.SetBounds(margin, (int)(80 * layoutScale), width, (int)(24 * layoutScale));
+        }
+
+        internal void FitToWorkArea(Rectangle area)
+        {
+            MinimumSize = new Size(Math.Min((int)(400 * layoutScale), area.Width), Math.Min((int)(320 * layoutScale), area.Height));
+            Size = new Size(Math.Min(Width, area.Width), Math.Min(Height, area.Height));
+            Location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)),
+                Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
         }
 
         private void BuildLayout()
@@ -325,13 +383,13 @@ namespace WindowsFish
             modeLabel.ForeColor = Color.FromArgb(48, 48, 48);
             modeLabel.AutoSize = false;
             modeLabel.TextAlign = ContentAlignment.MiddleLeft;
-            modeLabel.SetBounds(48, 116, 180, 36);
+            modeLabel.SetBounds(48, 116, 180, 28);
             Controls.Add(modeLabel);
 
-            win11 = new RadioButton { Text = "Windows 11", Appearance = Appearance.Button, TextAlign = ContentAlignment.MiddleCenter, FlatStyle = FlatStyle.Flat };
-            win10 = new RadioButton { Text = "Windows 10", Appearance = Appearance.Button, TextAlign = ContentAlignment.MiddleCenter, FlatStyle = FlatStyle.Flat };
-            win11.SetBounds(398, 116, 130, 36);
-            win10.SetBounds(542, 116, 130, 36);
+            win11 = new SceneChoice("win11");
+            win10 = new SceneChoice("win10");
+            win11.SetBounds(48, 150, 306, 92);
+            win10.SetBounds(366, 150, 306, 92);
             Controls.Add(win11);
             Controls.Add(win10);
             win11.Checked = preferences.Scene == "win11";
@@ -445,6 +503,9 @@ namespace WindowsFish
             sessionSummary.ForeColor = Color.FromArgb(100, 110, 112);
             sessionSummary.SetBounds(48, 474, 624, 24);
             Controls.Add(sessionSummary);
+            foreach (Control c in Controls)
+                if (c != win11 && c != win10 && c.Top >= 160 && c != startButton && c != sessionSummary)
+                    c.Top += 90;
         }
 
         private void ShowPreview()
@@ -463,6 +524,8 @@ namespace WindowsFish
                 preview.KeyPreview = true;
                 using (Graphics g = CreateGraphics())
                     preview.ClientSize = new Size((int)(520 * g.DpiX / 96), (int)(300 * g.DpiY / 96));
+                Rectangle area = Screen.FromControl(this).WorkingArea;
+                preview.Size = new Size(Math.Min(preview.Width, area.Width), Math.Min(preview.Height, area.Height));
                 preview.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) preview.Close(); };
                 try { preview.ShowDialog(this); }
                 finally { previewWindow = null; }
@@ -526,6 +589,8 @@ namespace WindowsFish
 
             selectedModeLabel.Text = preview;
             selectedModeLabel.AutoEllipsis = true;
+            foreach (var choice in new[] { win11 as SceneChoice, win10 as SceneChoice })
+                if (choice != null) choice.SetPreview(selectedMode, preferences);
         }
 
         private void StartButtonClick(object sender, EventArgs e)
@@ -570,7 +635,7 @@ namespace WindowsFish
             int index = keys == (Keys.Control | Keys.D1) ? 0 : keys == (Keys.Control | Keys.D2) ? 1 : keys == (Keys.Control | Keys.D3) ? 2 : -1;
             if (index < 0) return false;
             string id = UpdateScreenMode.All()[index].Id;
-            foreach (Control c in Controls)
+            foreach (Control c in ContentControls)
             {
                 var b = c as Button;
                 var state = b == null ? null : b.Tag as UpdateScreenMode;
@@ -593,7 +658,7 @@ namespace WindowsFish
             ready = false;
             try
             {
-                foreach (Control c in Controls)
+                foreach (Control c in ContentControls)
                 {
                     var button = c as Button;
                     var state = button == null ? null : button.Tag as UpdateScreenMode;
@@ -642,7 +707,6 @@ namespace WindowsFish
             StyleScenes();
             if (!ready) return;
             CancelLaunch();
-            preferences.Palette = "auto";
             UpdateSelectedModeLabel();
             SavePreferences();
         }
@@ -758,9 +822,11 @@ namespace WindowsFish
             foreach (Form old in windows.ToArray()) old.Close();
             windows.Clear();
 
-            foreach (Screen screen in Screen.AllScreens)
+            Screen[] screens = Screen.AllScreens;
+            Screen targetScreen = MonitorSelection.Resolve(screens, displayOptions.Monitor);
+            foreach (Screen screen in screens)
             {
-                bool target = screen.DeviceName == TargetScreen.DeviceName;
+                bool target = screen.DeviceName == targetScreen.DeviceName;
                 if (!target && !blackoutSecondary) continue;
                 Form form = target ? (Form)new UpdateForm(this, screenMode, speedFactor, displayOptions) : new BlackForm(this);
                 form.StartPosition = FormStartPosition.Manual;
@@ -883,12 +949,13 @@ namespace WindowsFish
 
     internal sealed class UpdateForm : Form
     {
-        private readonly Timer timer;
+        private readonly AnimationTimer timer;
         private readonly UpdateScreenMode screenMode;
         private readonly FishMode mode;
         private readonly Stopwatch previewClock = Stopwatch.StartNew();
         private readonly double speedFactor;
         private Rectangle spinnerBounds;
+        internal SceneLayout LastLayout;
         private readonly Font statusFont;
         private readonly Color ink;
 
@@ -904,44 +971,43 @@ namespace WindowsFish
             this.speedFactor = speedFactor;
             this.screenMode = screenMode;
             this.mode = mode;
-            string palette = options.Palette == "auto" ? (options.Scene == "win10" ? "blue" : "black") : options.Palette;
-            BackColor = palette == "blue" ? Color.FromArgb(0, 120, 215) : palette == "light" ? Color.FromArgb(245, 246, 248) : Color.Black;
-            ink = palette == "light" ? Color.FromArgb(30, 33, 38) : Color.White;
+            BackColor = SceneRenderer.Background(options);
+            ink = options.Palette == "light" ? Color.FromArgb(30, 33, 38) : Color.White;
             DoubleBuffered = true;
             Icon = AppIcon.Load();
             ResizeRedraw = true;
 
-            timer = new Timer();
-            timer.Interval = options.EcoMode ? 50 : 16;
-            timer.Tick += TimerTick;
-            timer.Start();
+            timer = new AnimationTimer(this, delegate { TimerTick(this, EventArgs.Empty); });
+            timer.Interval = options.EcoMode ? 50 : 15;
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
 
-            Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-            g.Clear(BackColor);
-
-            float cx = ClientSize.Width / 2F;
-            float lineGap = (statusFont.SizeInPoints * 1.6F + 4F) * g.DpiY / 96F;
-            bool hasSecondLine = !string.IsNullOrEmpty(screenMode.Line2);
-            float textCenterY = ClientSize.Height / 2F + 6F;
-            float firstLineY = hasSecondLine ? textCenterY - lineGap / 2F : textCenterY;
-            float spinnerY = firstLineY - 64F * g.DpiY / 96F;
-            float extent = 23F * g.DpiY / 96F;
-            spinnerBounds = Rectangle.Ceiling(new RectangleF(cx - extent, spinnerY - extent, extent * 2, extent * 2));
-
-            DrawSpinner(g, cx, spinnerY);
-            if (e.ClipRectangle.Bottom < firstLineY - lineGap) return;
-            DrawCenteredText(g, screenMode.Line1, cx, firstLineY);
-            if (hasSecondLine)
+            e.Graphics.Clear(BackColor);
+            double seconds = (mode == null ? previewClock.Elapsed.TotalSeconds : mode.AnimationSeconds) * speedFactor;
+            if (LastLayout != null && e.ClipRectangle == spinnerBounds)
             {
-                DrawCenteredText(g, screenMode.Line2, cx, firstLineY + lineGap);
+                SceneRenderer.DrawDots(e.Graphics, LastLayout.Center.X, LastLayout.Center.Y, LastLayout.Scale, ink, seconds);
+                return;
             }
+            LastLayout = SceneRenderer.Draw(e.Graphics, ClientSize, screenMode, statusFont, ink, seconds);
+            spinnerBounds = LastLayout.Spinner;
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (timer != null) timer.Enabled = Visible && WindowState != FormWindowState.Minimized;
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            LastLayout = null;
+            spinnerBounds = Rectangle.Empty;
+            base.OnResize(e);
+            if (timer != null) timer.Enabled = Visible && WindowState != FormWindowState.Minimized;
         }
 
         protected override void Dispose(bool disposing)
@@ -958,47 +1024,11 @@ namespace WindowsFish
         {
             if (!spinnerBounds.IsEmpty) Invalidate(spinnerBounds);
             else Invalidate();
+            Update();
         }
 
-        internal void SetEcoMode(bool enabled) { timer.Interval = enabled ? 50 : 16; }
+        internal void SetEcoMode(bool enabled) { timer.Interval = enabled ? 50 : 15; }
 
-        private void DrawCenteredText(
-            Graphics g,
-            string text,
-            float x,
-            float y)
-        {
-            using (var format = new StringFormat())
-            using (var brush = new SolidBrush(ink))
-            {
-                format.Alignment = StringAlignment.Center;
-                format.LineAlignment = StringAlignment.Center;
-                format.FormatFlags = StringFormatFlags.NoWrap;
-                g.DrawString(text, statusFont, brush, new PointF(x, y), format);
-            }
-        }
-
-        private void DrawSpinner(Graphics g, float cx, float cy)
-        {
-            float scale = g.DpiY / 96F;
-            float radius = 18F * scale;
-            double seconds = (mode == null ? previewClock.Elapsed.TotalSeconds : mode.AnimationSeconds) * speedFactor;
-            for (int i = 0; i < 5; i++)
-            {
-                double local = (seconds + 4.8D - i * 0.12D) % 4.8D;
-                if (local > 4.0D) continue;
-                double turn = local / 2D;
-                double fraction = turn - Math.Floor(turn);
-                double eased = fraction - 0.72D * Math.Sin(fraction * Math.PI * 2D) / (Math.PI * 2D);
-                double angle = (Math.Floor(turn) + eased) * Math.PI * 2D - Math.PI / 2D;
-                double fade = Math.Min(1D, Math.Min(local / 0.12D, (4D - local) / 0.12D));
-                float x = cx + (float)Math.Cos(angle) * radius;
-                float y = cy + (float)Math.Sin(angle) * radius;
-                float dot = 2F * scale;
-                using (var brush = new SolidBrush(Color.FromArgb((int)(255 * Math.Max(0D, fade)), ink)))
-                    g.FillEllipse(brush, x - dot, y - dot, dot * 2, dot * 2);
-            }
-        }
     }
 
     internal sealed class UpdateScreenMode

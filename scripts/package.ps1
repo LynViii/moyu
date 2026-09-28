@@ -8,8 +8,10 @@ if (!(Test-Path -LiteralPath $release)) { throw "Release notes missing for $vers
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $zip = Join-Path $dist "moyu-$version-win-x64.zip"
+$downloadExe = Join-Path $dist 'moyu.exe'
+Copy-Item -LiteralPath $exe -Destination $downloadExe -Force
 Compress-Archive -LiteralPath @($exe, $release) -DestinationPath $zip -Force
-$hashes = foreach ($file in @($exe, $zip)) {
+$hashes = foreach ($file in @($downloadExe, $zip)) {
     $hash = Get-FileHash -LiteralPath $file -Algorithm SHA256
     $hash.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($file)
 }

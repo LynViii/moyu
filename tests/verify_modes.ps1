@@ -17,7 +17,7 @@ try {
     $form.Show()
     [Windows.Forms.Application]::DoEvents()
     if ($modes.Length -ne 3) { throw 'Expected three modes' }
-    $modeButtons = @($form.Controls | Where-Object { $_.Tag -ne $null })
+    $modeButtons = @($introType.GetProperty('ContentControls', $flags).GetValue($form, $null) | Where-Object { $_.Tag -ne $null })
     $modeButtons[1].PerformClick()
     $introType.GetField('returnAfter', $flags).GetValue($form).SelectedIndex = 2
     $introType.GetField('blackoutSecondary', $flags).GetValue($form).Checked = $false

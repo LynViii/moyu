@@ -1,10 +1,10 @@
 # 摸鱼
 
-Windows 桌面状态模拟工具，当前版本 **0.3.0**。
+Windows 桌面状态模拟工具，当前版本 **0.3.1**。
 
 ## 使用
 
-从 [Releases](https://github.com/LynViii/moyu/releases/latest) 下载 `摸鱼.exe` 后直接运行。先选 Windows 10 / Windows 11，再选择正在更新、正在重启或准备 Windows，点击“开始摸鱼”。Esc 返回首页。首页可正常关闭，全屏期间拦截普通关闭操作；系统级切换快捷键保留。
+从 [Releases](https://github.com/LynViii/moyu/releases/latest) 下载 `moyu.exe` 后直接运行，或解压 ZIP 内的 `摸鱼.exe`，两者内容相同。先选 Windows 10 / Windows 11，再选择正在更新、正在重启或准备 Windows，点击“开始摸鱼”。Esc 返回首页。首页可正常关闭，全屏期间拦截普通关闭操作；系统级切换快捷键保留。
 
 - 窗口内动态预览，不进入全屏。
 - 自动返回：不限时、15/30/60 分钟，或自定义 1–240 分钟。
@@ -18,6 +18,9 @@ Windows 桌面状态模拟工具，当前版本 **0.3.0**。
 - 自动记住状态、时长和扩展屏选项。
 - 单实例运行，重复启动唤起已有窗口。
 - 响应显示器变化并重建覆盖窗口，不重置会话计时。
+- 首页场景缩略图随选项更新；小屏可滚动，开始按钮保持可见。
+- 自定义配色不会因切换场景丢失；离线显示器选择保留，运行时临时回退。
+- 长文案自动换行，文字与圆点整体居中；保存设置失败会显示提示。
 
 ## 环境与数据
 
@@ -52,6 +55,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_modes.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_scenes.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_scenes.ps1 -DpiUnaware
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_executable.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_fixes.ps1
+# Or run the complete suite:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\run_all.ps1
 ```
 
 ## 验证与限制
@@ -59,6 +65,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_executable.ps
 已验证 200% DPI 首页布局、设置恢复、单实例交接、预览关闭、仅主屏覆盖、显示器事件重建、Esc 和自动返回清理。物理显示器插拔与混合 DPI 多屏尚未完整实测。定时截止使用模拟经过时间验证。
 
 新版本额外覆盖场景与配色矩阵、动态圆点像素变化、字号、节能刷新、设置取消与默认值、目标屏幕回退、自定义倒计时和快捷键。DPI-unaware 测试用于逻辑 96 DPI 兼容检查，不等同于另一台物理 100% 缩放显示器。
+
+0.3.1 的修复验收与动画测量见 [归档前检查](docs/ARCHIVE_CHECK.md)。帧间隔由实际 Paint 回调测量，不保证所有设备恒定 60 FPS，也不代表显示器呈现延迟。小于设计宽度的极窄窗口允许水平滚动，保证选项可达；主按钮独立于滚动区域。
 
 ## 首页快捷键
 
