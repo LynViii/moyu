@@ -24,7 +24,7 @@ namespace WindowsFish
             return palette == "blue" ? Color.FromArgb(0, 120, 215) : palette == "light" ? Color.FromArgb(245, 246, 248) : Color.Black;
         }
 
-        internal static SceneLayout Draw(Graphics g, Size size, UpdateScreenMode mode, Font requested, Color ink, double seconds)
+        internal static SceneLayout Draw(Graphics g, Size size, UpdateScreenMode mode, Font requested, Color ink, double seconds, string scene = "win11")
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
@@ -58,7 +58,7 @@ namespace WindowsFish
                         Spinner = Rectangle.Ceiling(new RectangleF((size.Width - spinnerSize) / 2, top, spinnerSize, spinnerSize)),
                         FirstText = new RectangleF(margin, top + spinnerSize + separation, width, firstHeight) };
                     layout.SecondText = new RectangleF(margin, layout.FirstText.Bottom + gap, width, secondHeight);
-                    DrawDots(g, size.Width / 2F, top + spinnerSize / 2, scale, ink, seconds);
+                    DrawSpinner(g, size.Width / 2F, top + spinnerSize / 2, scale, ink, seconds, scene);
                     using (var brush = new SolidBrush(ink))
                     {
                         g.DrawString(mode.Line1, font, brush, layout.FirstText, format);
@@ -70,7 +70,23 @@ namespace WindowsFish
             }
         }
 
-        internal static void DrawDots(Graphics g, float cx, float cy, float scale, Color ink, double seconds)
+        internal static void DrawSpinner(Graphics g, float cx, float cy, float scale, Color ink, double seconds, string scene)
+        {
+            if (scene == "win10") { DrawDots(g, cx, cy, scale, ink, seconds); return; }
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            double phase = (seconds % 1.8) / 1.8;
+            double ease = 0.5 - 0.5 * Math.Cos(phase * Math.PI * 2);
+            float sweep = (float)(24 + 272 * ease);
+            float rotation = (float)(seconds * 235 % 360) - 90;
+            float radius = 17F * scale;
+            using (var pen = new Pen(ink, 2.5F * scale))
+            {
+                pen.StartCap = pen.EndCap = LineCap.Round;
+                g.DrawArc(pen, cx - radius, cy - radius, radius * 2, radius * 2, rotation - sweep / 2, sweep);
+            }
+        }
+
+        private static void DrawDots(Graphics g, float cx, float cy, float scale, Color ink, double seconds)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             for (int i = 0; i < 5; i++)
@@ -115,7 +131,7 @@ namespace WindowsFish
             {
                 g.Clear(SceneRenderer.Background(options));
                 SceneRenderer.Draw(g, bitmap.Size, mode.ForOptions(options), font,
-                    options.Palette == "light" ? Color.FromArgb(30, 33, 38) : Color.White, 1.1);
+                    options.Palette == "light" ? Color.FromArgb(30, 33, 38) : Color.White, 1.1, options.Scene);
             }
             var old = thumbnail;
             thumbnail = bitmap;

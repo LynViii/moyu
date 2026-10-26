@@ -17,7 +17,11 @@ namespace WindowsFish
         private readonly ComboBox monitor = Choice("主显示器（自动）");
         private readonly NumericUpDown seconds = new NumericUpDown { Minimum = 1, Maximum = 60, Dock = DockStyle.Fill };
         private readonly CheckBox eco = new CheckBox { Text = "节能动画", AutoSize = true };
-        private readonly CheckBox delay = new CheckBox { Text = "启用启动倒计时", AutoSize = true };
+        private readonly CheckBox closeToTray = new CheckBox { Text = "关闭窗口后驻留托盘", AutoSize = true };
+        private readonly CheckBox startup = new CheckBox { Text = "登录 Windows 后静默驻留", AutoSize = true };
+        private readonly ComboBox hotkey = Choice("关闭", "Alt+L", "Ctrl+Alt+L", "Ctrl+Shift+L");
+        private readonly CheckBox dismissStart = new CheckBox { Text = "伪装时自动收起开始菜单", AutoSize = true };
+        private readonly NumericUpDown startSeconds = new NumericUpDown { Minimum = 1, Maximum = 30, Dock = DockStyle.Fill };
         private readonly List<string> monitorNames = new List<string>();
         internal Preferences Result { get; private set; }
 
@@ -28,7 +32,7 @@ namespace WindowsFish
             Icon = AppIcon.Load();
             Font = new Font("Microsoft YaHei UI", 10F);
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(560, 420);
+            ClientSize = new Size(620, 460);
             MinimumSize = new Size(480, 380);
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
@@ -59,10 +63,15 @@ namespace WindowsFish
                 monitor.Items.Add(draft.Monitor + "（当前未连接）");
             }
             Row(display, "状态显示器", monitor);
-            Row(display, "延迟启动", delay);
             Row(display, "倒计时（秒）", seconds);
             Row(display, "动画刷新", eco);
-            delay.CheckedChanged += delegate { seconds.Enabled = delay.Checked; };
+            Row(display, "开始菜单", dismissStart);
+            Row(display, "收起等待（秒）", startSeconds);
+            dismissStart.CheckedChanged += delegate { startSeconds.Enabled = dismissStart.Checked; };
+            var resident = Page(tabs, "常驻与快捷键");
+            Row(resident, "关闭窗口", closeToTray);
+            Row(resident, "开机启动", startup);
+            Row(resident, "快捷启动", hotkey);
             var about = new TabPage("关于与更新");
             var text = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
                 Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, BackColor = BackColor };
@@ -70,7 +79,7 @@ namespace WindowsFish
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Changelog"))
                 if (stream != null) using (var reader = new StreamReader(stream)) log = reader.ReadToEnd();
             text.Text = "摸鱼 " + AppVersion.Value + "\r\n\r\n" +
-                "本地状态模拟工具，不执行真实更新或重启。\r\n圆点动画为自绘近似，浅色为自定义主题。\r\n\r\n" +
+                "本地状态模拟工具，不执行真实更新或重启。\r\nWin11 使用圆弧，Win10 使用圆点；浅色为自定义主题。\r\n\r\n" +
                 "首页快捷键\r\nCtrl+1 / 2 / 3：选择状态\r\nCtrl+P：预览\r\nCtrl+Enter：开始\r\nCtrl+,：设置\r\nEsc：退出全屏或取消倒计时\r\n\r\n" + log.Replace("\r\n", "\n").Replace("\n", "\r\n");
             about.Padding = new Padding(16);
             about.Controls.Add(text);
@@ -102,7 +111,7 @@ namespace WindowsFish
             {
                 float scale = graphics.DpiX / 96F;
                 root.Scale(new SizeF(scale, scale));
-                ClientSize = new Size((int)(560 * scale), (int)(420 * scale));
+                ClientSize = new Size((int)(620 * scale), (int)(460 * scale));
                 MinimumSize = new Size((int)(480 * scale), (int)(380 * scale));
                 palette.ItemHeight = (int)Math.Ceiling(Font.GetHeight(graphics) + 8 * scale);
             }
@@ -173,8 +182,12 @@ namespace WindowsFish
             textSize.SelectedIndex = draft.TextSize;
             monitor.SelectedIndex = Math.Max(0, monitorNames.IndexOf(draft.Monitor));
             seconds.Value = draft.DelaySeconds;
-            delay.Checked = draft.DelayStart;
-            seconds.Enabled = delay.Checked;
+            closeToTray.Checked = draft.CloseToTray;
+            startup.Checked = draft.StartWithWindows;
+            hotkey.SelectedIndex = draft.Hotkey;
+            dismissStart.Checked = draft.DismissStartMenu;
+            startSeconds.Value = draft.StartMenuSeconds;
+            startSeconds.Enabled = dismissStart.Checked;
             eco.Checked = draft.EcoMode;
         }
 
@@ -189,7 +202,11 @@ namespace WindowsFish
             result.TextSize = textSize.SelectedIndex;
             result.Monitor = monitorNames[monitor.SelectedIndex];
             result.DelaySeconds = (int)seconds.Value;
-            result.DelayStart = delay.Checked;
+            result.CloseToTray = closeToTray.Checked;
+            result.StartWithWindows = startup.Checked;
+            result.Hotkey = hotkey.SelectedIndex;
+            result.DismissStartMenu = dismissStart.Checked;
+            result.StartMenuSeconds = (int)startSeconds.Value;
             result.EcoMode = eco.Checked;
             return result;
         }

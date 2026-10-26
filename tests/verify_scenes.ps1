@@ -52,11 +52,10 @@ Put $prefs Palette 'light'
 Put $prefs Language 'en'
 Put $prefs TextSize 2
 Put $prefs DelaySeconds 1
-Put $prefs DelayStart $true
 Put $prefs EcoMode $true
 Call $prefs Save ([object[]]@($path)) | Out-Null
 $loaded = $pType.GetMethod('Load', $s).Invoke($null, [object[]]@($path.PSObject.BaseObject))
-foreach ($field in @('Scene','Palette','Language','TextSize','DelaySeconds','DelayStart','EcoMode')) {
+foreach ($field in @('Scene','Palette','Language','TextSize','DelaySeconds','EcoMode','CloseToTray','Hotkey','DismissStartMenu','StartMenuSeconds')) {
     if ((Get $prefs $field) -ne (Get $loaded $field)) { throw "Preference roundtrip: $field" }
 }
 Write-Output 'PASS: new display preferences roundtrip'
@@ -65,7 +64,7 @@ $doc = New-Object Xml.XmlDocument
 $doc.LoadXml('<preferences scene="missing" palette="missing" language="missing" textSize="9" delaySeconds="-1" ecoMode="invalid" />')
 $doc.Save($invalid)
 $defaults = $pType.GetMethod('Load', $s).Invoke($null, [object[]]@($invalid.PSObject.BaseObject))
-if ((Get $defaults Scene) -ne 'win11' -or (Get $defaults TextSize) -ne 1 -or (Get $defaults DelaySeconds) -ne 5) { throw 'Invalid preferences not clamped' }
+if ((Get $defaults Scene) -ne 'win11' -or (Get $defaults TextSize) -ne 1 -or (Get $defaults DelaySeconds) -ne 3) { throw 'Invalid preferences not clamped' }
 Write-Output 'PASS: invalid preference values fall back to defaults'
 $ctor = $dType.GetConstructor($f, $null, [type[]]@($pType), $null)
 $dialog = $ctor.Invoke([object[]]@($prefs.PSObject.BaseObject))
@@ -80,13 +79,15 @@ try {
     Capture $dialog ('settings-display-' + $DpiUnaware)
     CheckLayout $dialog
     $tabs.SelectedIndex = 2
+    Capture $dialog ('settings-resident-' + $DpiUnaware)
+    $tabs.SelectedIndex = 3
     Capture $dialog ('settings-about-' + $DpiUnaware)
     $before = [IO.File]::ReadAllText($path)
     Call $dialog ResetDraft @() | Out-Null
     $reset = Call $dialog ReadOptions @()
-    if ((Get $reset Scene) -ne 'win11' -or (Get $reset DelaySeconds) -ne 5 -or (Get $reset Palette) -ne 'auto') { throw 'Reset failed' }
+    if ((Get $reset Scene) -ne 'win11' -or (Get $reset DelaySeconds) -ne 3 -or (Get $reset Palette) -ne 'auto') { throw 'Reset failed' }
     if ([IO.File]::ReadAllText($path) -ne $before) { throw 'Reset wrote settings before Apply' }
-    Write-Output 'PASS: dialog values, three tabs, draft reset without writing settings'
+    Write-Output 'PASS: dialog values, four tabs, draft reset without writing settings'
 } finally { $dialog.Dispose() }
 $modes = $mType.GetMethod('All').Invoke($null,@())
 $ctor = $uType.GetConstructor([type[]]@($a.GetType('WindowsFish.FishMode'),$mType,[double],$pType))

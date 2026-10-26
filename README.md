@@ -1,45 +1,50 @@
 # 摸鱼
 
-Windows 桌面状态模拟工具，当前版本 **0.3.1**。
+Windows 桌面状态模拟工具，当前版本 **0.4.0**。
 
 ## 使用
 
-从 [Releases](https://github.com/LynViii/moyu/releases/latest) 下载 `moyu.exe` 后直接运行，或解压 ZIP 内的 `摸鱼.exe`，两者内容相同。先选 Windows 10 / Windows 11，再选择正在更新、正在重启或准备 Windows，点击“开始摸鱼”。Esc 返回首页。首页可正常关闭，全屏期间拦截普通关闭操作；系统级切换快捷键保留。
+从 [Releases](https://github.com/LynViii/moyu/releases) 下载对应版本的 `moyu.exe` 后直接运行，或解压 ZIP 内的 `摸鱼.exe`，两者内容相同。先选 Windows 10 / Windows 11，再选择正在更新、正在重启或准备 Windows，选择倒计时后点击“开始摸鱼”。关闭首页默认驻留右下角托盘。双击托盘恢复窗口，右键菜单可完整退出。
 
 - 窗口内动态预览，不进入全屏。
-- 自动返回：不限时、15/30/60 分钟，或自定义 1–240 分钟。
+- 全局 Alt+L 快捷启动，提示框倒计时后进入伪装，支持取消和立即开始。
 - 三档动画速度，窗口预览与全屏同步。
-- 可取消的 1–60 秒延迟开始；点击倒计时按钮或 Esc 取消。
+- 首页直接选择 1–60 秒后开始；点击倒计时按钮、Esc 或再次按全局快捷键取消。
 - 返回首页显示本次用时；统计仅存在当前进程内。
 - 默认主屏显示状态，也可指定其他屏幕；其余屏幕可选择是否覆盖为黑色。
-- Win10 默认蓝底、Win11 默认黑底，另有自定义浅色；配色可独立选择。
+- Win10 默认蓝底和经典圆点、Win11 默认黑底和连续圆弧，另有自定义浅色；配色可独立选择。
 - 中英文状态文案、小/标准/大三档字型；默认流畅刷新，可选节能模式。
 - 更多设置内可恢复默认、离线查看版本与更新日志。
-- 自动记住状态、时长和扩展屏选项。
+- 自动记住状态、倒计时、显示器和扩展屏选项。
+- 可选开机静默驻留，当前用户生效，默认关闭；在更多设置的常驻与快捷键页开启。
+- 伪装期间可选择在 1–30 秒后收起前台开始菜单，默认 3 秒；Win 键仍可正常使用。
+- 取消自动退出；手动按 Esc 或使用托盘结束伪装。从托盘启动的伪装结束后返回托盘。
 - 单实例运行，重复启动唤起已有窗口。
 - 响应显示器变化并重建覆盖窗口，不重置会话计时。
 - 首页场景缩略图随选项更新；小屏可滚动，开始按钮保持可见。
 - 自定义配色不会因切换场景丢失；离线显示器选择保留，运行时临时回退。
-- 长文案自动换行，文字与圆点整体居中；保存设置失败会显示提示。
+- 长文案自动换行，文字与动画整体居中；保存设置失败会显示提示。
 
 ## 环境与数据
 
 Windows x64，需 .NET Framework 4.x；构建与测试使用系统自带 Framework 编译器。
 仅运行 exe 即可，图片、图标和更新日志已嵌入，可复制到其他文件夹单独运行。偏好设置位于 `%LOCALAPPDATA%\Moyu\settings.xml`，不随程序上传。
 不提供方案管理、设置导入导出、持久会话历史或 CSV 导出，只自动记住上次选项。
-不执行真实更新或重启。圆点动画为自绘复现，并非 Windows 系统资源。程序尚未做代码签名。
+不执行真实更新或重启。圆弧与圆点动画为自绘近似，并非 Windows 系统资源。程序尚未做代码签名。
+开机启动项为当前用户 Run 键的 Moyu 值。启用后请保持 EXE 路径有效；移动程序后在设置中重新应用开机启动选项。Windows 任务管理器也可能单独禁用启动项。不会创建系统服务。
 
 ## 构建
 
 快捷方式的目标后可以附加启动参数，例如：
 
 ```powershell
-.\摸鱼.exe --mode update --minutes 25 --speed normal --primary-only --start
+.\摸鱼.exe --mode update --speed normal --primary-only --start
 ```
 
-状态取值 `update/restart/prepare`，时长 `0..240`（0 不限时），速度 `slow/normal/fast`。
+状态取值 `update/restart/prepare`，速度 `slow/normal/fast`。旧 `--minutes` 参数不再触发自动退出。
 省略 `--start` 只填入选项；`--start` 遵循已保存的延迟设置。
 已有全屏会话时重复启动只唤起会话，不重置参数或计时。
+`--silent` 静默驻留托盘；重复以该参数启动不会唤起首页。`--exit` 完整退出已运行实例。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build_exe.ps1
@@ -56,22 +61,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_scenes.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_scenes.ps1 -DpiUnaware
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_executable.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_fixes.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\verify_desktop.ps1
 # Or run the complete suite:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\run_all.ps1
 ```
 
 ## 验证与限制
 
-已验证 200% DPI 首页布局、设置恢复、单实例交接、预览关闭、仅主屏覆盖、显示器事件重建、Esc 和自动返回清理。物理显示器插拔与混合 DPI 多屏尚未完整实测。定时截止使用模拟经过时间验证。
+当前验证覆盖 DPI 布局、设置恢复、单实例交接、预览、两屏覆盖、显示器事件重建、Esc 清理、托盘驻留、全局快捷键注册与冲突、倒计时弹窗、静默参数和真实开机项启停。测试会恢复原开机项，不代替用户开启开机启动。物理显示器插拔与混合 DPI 多屏尚未完整实测。
 
 新版本额外覆盖场景与配色矩阵、动态圆点像素变化、字号、节能刷新、设置取消与默认值、目标屏幕回退、自定义倒计时和快捷键。DPI-unaware 测试用于逻辑 96 DPI 兼容检查，不等同于另一台物理 100% 缩放显示器。
 
 0.3.1 的修复验收与动画测量见 [归档前检查](docs/ARCHIVE_CHECK.md)。帧间隔由实际 Paint 回调测量，不保证所有设备恒定 60 FPS，也不代表显示器呈现延迟。小于设计宽度的极窄窗口允许水平滚动，保证选项可达；主按钮独立于滚动区域。
+0.4.0 的桌面集成结果见 [本轮验证](docs/VALIDATION_0.4.0.md)。开始菜单真实闭环在本次前台程序抢焦点的环境未验证，测试会明确打印 NOT VERIFIED；计时、重开重置和非目标窗口拒绝已验证。完整测试需要普通交互桌面权限，受限沙箱可能拒绝全局快捷键注册。
 
 ## 首页快捷键
 
 | 快捷键 | 操作 |
 | --- | --- |
+| Alt+L（可更换） | 全局快捷启动，再按取消倒计时 |
 | Ctrl+1 / 2 / 3 | 选择更新、重启、准备 |
 | Ctrl+P | 预览 |
 | Ctrl+Enter | 开始或取消倒计时 |

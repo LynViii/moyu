@@ -46,26 +46,31 @@ namespace WindowsFish
         {
             var form = new IntroForm();
             MainForm = form;
-            form.Shown += delegate { form.ApplyArguments(new List<string>(CommandLineArgs).ToArray()); };
+            form.StartupArguments = new List<string>(CommandLineArgs).ToArray();
         }
 
         protected override void OnStartupNextInstance(StartupNextInstanceEventArgs e)
         {
             base.OnStartupNextInstance(e);
             e.BringToForeground = false;
-            ((IntroForm)MainForm).Reveal();
-            ((IntroForm)MainForm).ApplyArguments(new List<string>(e.CommandLine).ToArray());
+            var form = (IntroForm)MainForm;
+            string[] args = new List<string>(e.CommandLine).ToArray();
+            if (Array.IndexOf(args, "--silent") < 0 && Array.IndexOf(args, "--exit") < 0) form.Reveal();
+            form.ApplyArguments(args);
         }
     }
 
     internal sealed class Preferences
     {
         internal string Mode = "update";
-        internal int Minutes;
         internal bool BlackoutSecondary = true;
         internal int Speed = 1;
-        internal bool DelayStart;
-        internal int DelaySeconds = 5;
+        internal int DelaySeconds = 3;
+        internal bool CloseToTray = true;
+        internal bool StartWithWindows;
+        internal int Hotkey = 1;
+        internal bool DismissStartMenu = true;
+        internal int StartMenuSeconds = 3;
         internal string Language = "zh";
         internal string Monitor = "";
         internal bool EcoMode;
@@ -82,9 +87,7 @@ namespace WindowsFish
             {
                 var root = SettingsFiles.Read(path).Root;
                 string mode = (string)root.Attribute("mode");
-                int minutes;
                 int speed;
-                bool delay;
                 int seconds;
                 int textSize;
                 string scene = (string)root.Attribute("scene");
@@ -93,17 +96,21 @@ namespace WindowsFish
                 if (palette == "auto" || palette == "black" || palette == "blue" || palette == "light") settings.Palette = palette;
                 if (int.TryParse((string)root.Attribute("textSize"), out textSize) && textSize >= 0 && textSize <= 2) settings.TextSize = textSize;
                 bool eco;
+                bool option;
+                int selection;
+                if (bool.TryParse((string)root.Attribute("closeToTray"), out option)) settings.CloseToTray = option;
+                if (bool.TryParse((string)root.Attribute("startWithWindows"), out option)) settings.StartWithWindows = option;
+                if (bool.TryParse((string)root.Attribute("dismissStartMenu"), out option)) settings.DismissStartMenu = option;
+                if (int.TryParse((string)root.Attribute("hotkey"), out selection) && selection >= 0 && selection <= 3) settings.Hotkey = selection;
+                if (int.TryParse((string)root.Attribute("startMenuSeconds"), out selection) && selection >= 1 && selection <= 30) settings.StartMenuSeconds = selection;
                 if (int.TryParse((string)root.Attribute("delaySeconds"), out seconds) && seconds >= 1 && seconds <= 60) settings.DelaySeconds = seconds;
                 if ((string)root.Attribute("language") == "en") settings.Language = "en";
                 settings.Monitor = (string)root.Attribute("monitor") ?? "";
                 if (bool.TryParse((string)root.Attribute("ecoMode"), out eco)) settings.EcoMode = eco;
                 if (int.TryParse((string)root.Attribute("speed"), out speed) && speed >= 0 && speed <= 2) settings.Speed = speed;
-                if (bool.TryParse((string)root.Attribute("delayStart"), out delay)) settings.DelayStart = delay;
                 bool blackout;
                 if (bool.TryParse((string)root.Attribute("blackoutSecondary"), out blackout)) settings.BlackoutSecondary = blackout;
                 if (mode == "update" || mode == "restart" || mode == "prepare") settings.Mode = mode;
-                if (int.TryParse((string)root.Attribute("minutes"), out minutes) &&
-                    minutes >= 0 && minutes <= 240) settings.Minutes = minutes;
             }
             catch (Exception error) { Trace.WriteLine(error.Message); }
             return settings;
@@ -130,9 +137,10 @@ namespace WindowsFish
 
         internal XElement ToXml()
         {
-            return new XElement("preferences", new XAttribute("schema", 1), new XAttribute("mode", Mode),
-                new XAttribute("minutes", Minutes), new XAttribute("blackoutSecondary", BlackoutSecondary),
-                new XAttribute("speed", Speed), new XAttribute("delayStart", DelayStart),
+            return new XElement("preferences", new XAttribute("schema", 2), new XAttribute("mode", Mode),
+                new XAttribute("blackoutSecondary", BlackoutSecondary), new XAttribute("speed", Speed),
+                new XAttribute("closeToTray", CloseToTray), new XAttribute("startWithWindows", StartWithWindows),
+                new XAttribute("hotkey", Hotkey), new XAttribute("dismissStartMenu", DismissStartMenu), new XAttribute("startMenuSeconds", StartMenuSeconds),
                 new XAttribute("delaySeconds", DelaySeconds), new XAttribute("language", Language),
                 new XAttribute("monitor", Monitor), new XAttribute("ecoMode", EcoMode),
                 new XAttribute("scene", Scene), new XAttribute("palette", Palette), new XAttribute("textSize", TextSize));
@@ -141,18 +149,16 @@ namespace WindowsFish
         internal Preferences Clone() { return (Preferences)MemberwiseClone(); }
     }
 
-    internal sealed class IntroForm : Form
+    internal sealed partial class IntroForm : Form
     {
         private FishMode fishMode;
         private UpdateScreenMode selectedMode;
         private Button selectedModeButton;
         private Label selectedModeLabel;
-        private ComboBox returnAfter;
-        private NumericUpDown customMinutes;
+        private NumericUpDown delaySeconds;
         private CheckBox blackoutSecondary;
         private UpdateForm previewWindow;
         private ComboBox speedChoice;
-        private CheckBox delayStart;
         private RadioButton win11;
         private RadioButton win10;
         private Button startButton;
@@ -171,10 +177,13 @@ namespace WindowsFish
         private readonly string settingsPath;
         private bool ready;
 
-        public IntroForm() : this(Preferences.FilePath) { }
+        public IntroForm() : this(Preferences.FilePath, true) { }
 
-        internal IntroForm(string settingsPath)
+        internal IntroForm(string settingsPath) : this(settingsPath, false) { }
+
+        internal IntroForm(string settingsPath, bool desktopEnabled)
         {
+            this.desktopEnabled = desktopEnabled;
             this.settingsPath = settingsPath;
             preferences = Preferences.Load(settingsPath);
             AutoScaleMode = AutoScaleMode.None;
@@ -194,13 +203,38 @@ namespace WindowsFish
             BuildScrollableLayout();
             FitToWorkArea(Screen.FromControl(this).WorkingArea);
             ready = true;
+            if (desktopEnabled) InitializeDesktop();
+        }
+
+        internal string[] StartupArguments = new string[0];
+
+        protected override void SetVisibleCore(bool value)
+        {
+            if (!startupHandled && value && (Array.IndexOf(StartupArguments, "--silent") >= 0 || Array.IndexOf(StartupArguments, "--exit") >= 0))
+            {
+                startupHandled = true;
+                if (!IsHandleCreated) CreateHandle();
+                base.SetVisibleCore(false);
+                ApplyArguments(StartupArguments);
+                return;
+            }
+            base.SetVisibleCore(value);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (!startupHandled) { startupHandled = true; ApplyArguments(StartupArguments); }
         }
 
         public void Reveal()
         {
+            if (launchPrompt != null) { launchPrompt.Activate(); NativeDesktop.Foreground(launchPrompt.Handle); return; }
+            if (settingsWindow != null) { settingsWindow.Activate(); NativeDesktop.Foreground(settingsWindow.Handle); return; }
             if (previewWindow != null && !previewWindow.IsDisposed) { previewWindow.Activate(); return; }
             if (fishMode != null) { fishMode.ActivatePrimary(); return; }
             Show();
+            ShowInTaskbar = true;
             WindowState = FormWindowState.Normal;
             Rectangle area = Screen.FromControl(this).WorkingArea;
             FitToWorkArea(area);
@@ -211,9 +245,10 @@ namespace WindowsFish
 
         internal void ApplyArguments(string[] args)
         {
+            if (Array.IndexOf(args, "--exit") >= 0) { ExitApplication(); return; }
             if (args.Length == 0 || fishMode != null || previewWindow != null) return;
             string mode = selectedMode.Id;
-            int minutes = SelectedMinutes;
+            int ignoredMinutes;
             int speed = speedChoice.SelectedIndex;
             bool start = false;
             bool primaryOnly = false;
@@ -223,11 +258,12 @@ namespace WindowsFish
                 {
                     string option = args[i];
                     if (option == "--start") { start = true; continue; }
+                    if (option == "--silent") continue;
                     if (option == "--primary-only") { primaryOnly = true; continue; }
                     if (++i >= args.Length) throw new ArgumentException("参数缺少取值：" + option);
                     string value = args[i];
                     if (option == "--mode" && (value == "update" || value == "restart" || value == "prepare")) mode = value;
-                    else if (option == "--minutes" && int.TryParse(value, out minutes) && minutes >= 0 && minutes <= 240) { }
+                    else if (option == "--minutes" && int.TryParse(value, out ignoredMinutes)) { }
                     else if (option == "--speed" && (value == "slow" || value == "normal" || value == "fast"))
                         speed = value == "slow" ? 0 : value == "normal" ? 1 : 2;
                     else throw new ArgumentException("无效参数：" + option + " " + value);
@@ -248,9 +284,6 @@ namespace WindowsFish
                     var state = button == null ? null : button.Tag as UpdateScreenMode;
                     if (state != null && state.Id == mode) SelectMode(state, button);
                 }
-                int preset = Array.IndexOf(new[] { 0, 15, 30, 60 }, minutes);
-                customMinutes.Value = Math.Max(1, minutes);
-                returnAfter.SelectedIndex = preset < 0 ? 4 : preset;
                 speedChoice.SelectedIndex = speed;
                 if (primaryOnly) blackoutSecondary.Checked = false;
                 UpdateSelectedModeLabel();
@@ -264,18 +297,12 @@ namespace WindowsFish
         {
             if (!ready) return;
             preferences.Mode = selectedMode.Id;
-            preferences.Minutes = SelectedMinutes;
             preferences.BlackoutSecondary = blackoutSecondary.Checked;
             preferences.Speed = speedChoice.SelectedIndex;
-            preferences.DelayStart = delayStart.Checked;
+            preferences.DelaySeconds = (int)delaySeconds.Value;
             bool saved = preferences.Save(settingsPath);
             if (saveWarning != null)
                 saveWarning.Text = saved ? "" : "本次已生效，但未能记住设置。";
-        }
-
-        private int SelectedMinutes
-        {
-            get { return returnAfter.SelectedIndex == 4 ? (int)customMinutes.Value : new[] { 0, 15, 30, 60 }[returnAfter.SelectedIndex]; }
         }
 
         private void ApplyLayoutScale(float scale)
@@ -424,33 +451,13 @@ namespace WindowsFish
             Controls.Add(selectedModeLabel);
             UpdateSelectedModeLabel();
 
-            var returnLabel = new Label();
-            returnLabel.Text = "自动返回";
-            returnLabel.TextAlign = ContentAlignment.MiddleLeft;
-            returnLabel.SetBounds(48, 270, 110, 30);
-            Controls.Add(returnLabel);
-
-            returnAfter = new ComboBox();
-            returnAfter.DropDownStyle = ComboBoxStyle.DropDownList;
-            returnAfter.Items.AddRange(new object[] { "不限时", "15 分钟后", "30 分钟后", "60 分钟后", "自定义（分钟）" });
-            int preset = Array.IndexOf(new[] { 0, 15, 30, 60 }, preferences.Minutes);
-            returnAfter.SelectedIndex = preset < 0 ? 4 : preset;
-            returnAfter.SetBounds(410, 270, 162, 30);
-            Controls.Add(returnAfter);
-
-            customMinutes = new NumericUpDown();
-            customMinutes.Minimum = 1;
-            customMinutes.Maximum = 240;
-            customMinutes.Value = Math.Max(1, preferences.Minutes);
-            customMinutes.Enabled = returnAfter.SelectedIndex == 4;
-            customMinutes.SetBounds(584, 270, 88, 30);
-            customMinutes.ValueChanged += delegate { SavePreferences(); };
-            returnAfter.SelectedIndexChanged += delegate
-            {
-                customMinutes.Enabled = returnAfter.SelectedIndex == 4;
-                SavePreferences();
-            };
-            Controls.Add(customMinutes);
+            var delayLabel = new Label { Text = "开始倒计时（秒）", TextAlign = ContentAlignment.MiddleLeft };
+            delayLabel.SetBounds(48, 270, 280, 30);
+            Controls.Add(delayLabel);
+            delaySeconds = new NumericUpDown { Minimum = 1, Maximum = 60, Value = preferences.DelaySeconds };
+            delaySeconds.SetBounds(510, 270, 162, 30);
+            delaySeconds.ValueChanged += delegate { CancelLaunch(); SavePreferences(); };
+            Controls.Add(delaySeconds);
 
             blackoutSecondary = new CheckBox();
             blackoutSecondary.Text = "扩展屏黑屏";
@@ -469,12 +476,9 @@ namespace WindowsFish
             preview.Click += delegate { ShowPreview(); };
             Controls.Add(preview);
 
-            delayStart = new CheckBox();
-            delayStart.Text = preferences.DelaySeconds + " 秒后开始";
-            delayStart.Checked = preferences.DelayStart;
-            delayStart.SetBounds(48, 358, 220, 30);
-            delayStart.CheckedChanged += delegate { SavePreferences(); };
-            Controls.Add(delayStart);
+            desktopStatus = new Label { ForeColor = Color.FromArgb(72, 72, 72), AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+            desktopStatus.SetBounds(48, 358, 430, 30);
+            Controls.Add(desktopStatus);
 
             speedChoice = new ComboBox();
             speedChoice.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -485,7 +489,7 @@ namespace WindowsFish
             Controls.Add(speedChoice);
 
             startButton = new Button();
-            startButton.Text = "开始摸鱼";
+            if (startButton != null) startButton.Text = "开始摸鱼";
             startButton.Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Regular, GraphicsUnit.Point);
             startButton.BackColor = Accent;
             startButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(0, 92, 97);
@@ -596,7 +600,13 @@ namespace WindowsFish
         private void StartButtonClick(object sender, EventArgs e)
         {
             if (launchTimer != null) { CancelLaunch(); return; }
-            if (!delayStart.Checked) { BeginSession(); return; }
+            StartLaunch(false);
+        }
+
+        internal void StartLaunch(bool showPrompt)
+        {
+            if (fishMode != null) { fishMode.ActivatePrimary(); return; }
+            if (previewWindow != null || launchTimer != null || settingsWindow != null) return;
             launchClock = Stopwatch.StartNew();
             startButton.Text = "取消开始 · " + preferences.DelaySeconds;
             launchTimer = new Timer();
@@ -605,18 +615,27 @@ namespace WindowsFish
             {
                 int remaining = Math.Max(0, preferences.DelaySeconds - (int)launchClock.Elapsed.TotalSeconds);
                 startButton.Text = "取消开始 · " + remaining;
+                if (launchPrompt != null) launchPrompt.SetRemaining(remaining);
                 if (remaining == 0) { CancelLaunch(); BeginSession(); }
             };
             launchTimer.Start();
+            if (showPrompt)
+            {
+                launchPrompt = new LaunchPrompt(preferences.Scene, selectedMode.DisplayName, preferences.DelaySeconds);
+                launchPrompt.CancelRequested += delegate { CancelLaunch(); };
+                launchPrompt.StartRequested += delegate { CancelLaunch(); BeginSession(); };
+                launchPrompt.Show();
+                NativeDesktop.Foreground(launchPrompt.Handle);
+            }
+            UpdateTrayState();
         }
 
         private void CancelLaunch()
         {
-            if (launchTimer == null) return;
-            launchTimer.Stop();
-            launchTimer.Dispose();
-            launchTimer = null;
+            if (launchTimer != null) { launchTimer.Stop(); launchTimer.Dispose(); launchTimer = null; }
+            if (launchPrompt != null) { var prompt = launchPrompt; launchPrompt = null; prompt.Dispose(); }
             startButton.Text = "开始摸鱼";
+            UpdateTrayState();
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -648,12 +667,17 @@ namespace WindowsFish
         {
             CancelLaunch();
             using (var dialog = new SettingsDialog(preferences))
-                if (dialog.ShowDialog(this) == DialogResult.OK) ApplySettings(dialog.Result);
+            {
+                settingsWindow = dialog;
+                try { if (dialog.ShowDialog(this) == DialogResult.OK) ApplySettings(dialog.Result); }
+                finally { settingsWindow = null; }
+            }
         }
 
         internal void ApplySettings(Preferences settings)
         {
             CancelLaunch();
+            if (desktopEnabled && !ApplyStartupSetting(settings)) return;
             preferences = settings.Clone();
             ready = false;
             try
@@ -664,35 +688,35 @@ namespace WindowsFish
                     var state = button == null ? null : button.Tag as UpdateScreenMode;
                     if (state != null && state.Id == preferences.Mode) SelectMode(state, button);
                 }
-                int preset = Array.IndexOf(new[] { 0, 15, 30, 60 }, preferences.Minutes);
-                customMinutes.Value = Math.Max(1, preferences.Minutes);
-                returnAfter.SelectedIndex = preset < 0 ? 4 : preset;
                 win11.Checked = preferences.Scene == "win11";
                 win10.Checked = preferences.Scene == "win10";
                 blackoutSecondary.Checked = preferences.BlackoutSecondary;
                 speedChoice.SelectedIndex = preferences.Speed;
-                delayStart.Checked = preferences.DelayStart;
-                delayStart.Text = preferences.DelaySeconds + " 秒后开始";
+                delaySeconds.Value = preferences.DelaySeconds;
                 UpdateSelectedModeLabel();
             }
             finally { ready = true; }
             SavePreferences();
+            ConfigureHotkey();
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             CancelLaunch();
+            DisposeDesktop();
             base.OnFormClosed(e);
         }
 
         private void BeginSession()
         {
-            fishMode = new FishMode(this, selectedMode.ForOptions(preferences), SelectedMinutes, blackoutSecondary.Checked, SpeedFactor, preferences);
+            returnToTray = !Visible;
+            fishMode = new FishMode(this, selectedMode.ForOptions(preferences), blackoutSecondary.Checked, SpeedFactor, preferences);
             sessionClock.Restart();
             Hide();
             try
             {
                 fishMode.Start();
+                UpdateTrayState();
             }
             catch (Exception error)
             {
@@ -730,7 +754,12 @@ namespace WindowsFish
                     (int)sessionClock.Elapsed.TotalHours, sessionClock.Elapsed.Minutes, sessionClock.Elapsed.Seconds);
             }
             fishMode = null;
-            if (!IsDisposed && !Disposing) Reveal();
+            UpdateTrayState();
+            if (!IsDisposed && !Disposing && !exiting)
+            {
+                if (returnToTray && desktopEnabled) HideToTray();
+                else Reveal();
+            }
         }
     }
 
@@ -740,8 +769,7 @@ namespace WindowsFish
         private readonly UpdateScreenMode screenMode;
         private readonly List<Form> windows = new List<Form>();
         private bool closing;
-        private readonly int returnMinutes;
-        private Timer returnTimer;
+        private StartMenuGuard startMenuGuard;
         private Stopwatch elapsed;
         private bool cursorHidden;
         private bool returned;
@@ -754,21 +782,11 @@ namespace WindowsFish
         internal Screen TargetScreen { get { return MonitorSelection.Resolve(Screen.AllScreens, displayOptions.Monitor); } }
         internal double AnimationSeconds { get { return elapsed == null ? 0D : elapsed.Elapsed.TotalSeconds; } }
 
-        public FishMode(IntroForm owner, UpdateScreenMode screenMode, int returnMinutes)
-            : this(owner, screenMode, returnMinutes, true) { }
-
-        public FishMode(IntroForm owner, UpdateScreenMode screenMode, int returnMinutes, bool blackoutSecondary)
-            : this(owner, screenMode, returnMinutes, blackoutSecondary, 1D) { }
-
-        public FishMode(IntroForm owner, UpdateScreenMode screenMode, int returnMinutes, bool blackoutSecondary, double speedFactor)
-            : this(owner, screenMode, returnMinutes, blackoutSecondary, speedFactor, new Preferences()) { }
-
-        public FishMode(IntroForm owner, UpdateScreenMode screenMode, int returnMinutes, bool blackoutSecondary, double speedFactor, Preferences options)
+        public FishMode(IntroForm owner, UpdateScreenMode screenMode, bool blackoutSecondary, double speedFactor, Preferences options)
         {
             displayOptions = options.Clone();
             this.owner = owner;
             this.screenMode = screenMode;
-            this.returnMinutes = returnMinutes;
             this.blackoutSecondary = blackoutSecondary;
             this.speedFactor = speedFactor;
         }
@@ -790,12 +808,9 @@ namespace WindowsFish
             };
             SystemEvents.DisplaySettingsChanged += DisplaySettingsChanged;
             displaySubscribed = true;
-            if (returnMinutes > 0)
+            if (displayOptions.DismissStartMenu)
             {
-                returnTimer = new Timer();
-                returnTimer.Interval = 500;
-                returnTimer.Tick += delegate { CheckAutoReturn(elapsed.Elapsed.TotalMinutes); };
-                returnTimer.Start();
+                startMenuGuard = new StartMenuGuard(displayOptions.StartMenuSeconds);
             }
         }
 
@@ -863,12 +878,8 @@ namespace WindowsFish
                     form.WindowState = FormWindowState.Normal;
                     form.Bounds = TargetScreen.Bounds;
                     form.Activate();
+                    NativeDesktop.Foreground(form.Handle);
                 }
-        }
-
-        internal void CheckAutoReturn(double elapsedMinutes)
-        {
-            if (returnMinutes > 0 && elapsedMinutes >= returnMinutes) Stop();
         }
 
         public void Stop()
@@ -890,11 +901,10 @@ namespace WindowsFish
                 displayTimer.Dispose();
                 displayTimer = null;
             }
-            if (returnTimer != null)
+            if (startMenuGuard != null)
             {
-                returnTimer.Stop();
-                returnTimer.Dispose();
-                returnTimer = null;
+                startMenuGuard.Dispose();
+                startMenuGuard = null;
             }
             foreach (Form form in windows.ToArray())
             {
@@ -958,6 +968,7 @@ namespace WindowsFish
         internal SceneLayout LastLayout;
         private readonly Font statusFont;
         private readonly Color ink;
+        private readonly string scene;
 
         public UpdateForm(FishMode mode, UpdateScreenMode screenMode)
             : this(mode, screenMode, 1D) { }
@@ -971,6 +982,7 @@ namespace WindowsFish
             this.speedFactor = speedFactor;
             this.screenMode = screenMode;
             this.mode = mode;
+            scene = options.Scene;
             BackColor = SceneRenderer.Background(options);
             ink = options.Palette == "light" ? Color.FromArgb(30, 33, 38) : Color.White;
             DoubleBuffered = true;
@@ -989,10 +1001,10 @@ namespace WindowsFish
             double seconds = (mode == null ? previewClock.Elapsed.TotalSeconds : mode.AnimationSeconds) * speedFactor;
             if (LastLayout != null && e.ClipRectangle == spinnerBounds)
             {
-                SceneRenderer.DrawDots(e.Graphics, LastLayout.Center.X, LastLayout.Center.Y, LastLayout.Scale, ink, seconds);
+                SceneRenderer.DrawSpinner(e.Graphics, LastLayout.Center.X, LastLayout.Center.Y, LastLayout.Scale, ink, seconds, scene);
                 return;
             }
-            LastLayout = SceneRenderer.Draw(e.Graphics, ClientSize, screenMode, statusFont, ink, seconds);
+            LastLayout = SceneRenderer.Draw(e.Graphics, ClientSize, screenMode, statusFont, ink, seconds, scene);
             spinnerBounds = LastLayout.Spinner;
         }
 

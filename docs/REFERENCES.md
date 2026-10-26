@@ -7,6 +7,16 @@ These projects were reviewed for product ideas. No source code or assets were co
 Windowed preview and optional secondary-screen coverage are local additions.
 The animation is a local approximation, not an extracted Windows animation.
 
+## 0.4.0 Desktop Integration and Win11 Animation
+
+Reviewed on 2026-10-26:
+
+- https://learn.microsoft.com/en-us/windows/winui/api/microsoft.ui.xaml.controls.progressring : modern indeterminate ring reference. Win11 now uses a locally drawn continuous arc; Win10 keeps the older dots. This supersedes the earlier five-dot preference for Win11 per the latest user request.
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey : global shortcut registration and MOD_NOREPEAT.
+- https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys : current-user login startup.
+
+No Microsoft animation asset or library code was copied. Start-menu handling is a best-effort foreground-process check with a deadline; it is not a documented universal Shell close API.
+
 ## 0.3.0 Scene Selection
 
 Reviewed https://github.com/TheBigEye/Fake-Update on 2026-09-27, including the README, index.html and repository tree.
