@@ -45,4 +45,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\run_all.ps1
 ## 交付
 
 版本：0.4.0。源码、更新日志和发布说明已更新，EXE 与 ZIP 可在本机使用。
-GitHub 仓库的当前可见性已变为 PUBLIC；此前明确授权的发布目标为私有仓库。在获得公开发布确认前，不推送本轮源码或发布附件，也不自行更改仓库可见性。
+发布目标：用户于 2026-10-26 明确确认的公开仓库 LynViii/moyu。本轮源码与附件按此确认同步，保留现有仓库可见性。
