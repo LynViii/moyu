@@ -25,11 +25,13 @@ namespace WindowsFish
     internal static class Program
     {
         [STAThread]
-        private static void Main(string[] args)
+        private static int Main(string[] args)
         {
+            if (args.Length == 3 && args[0] == "--apply-update") return UpdateInstaller.RunHelper(args[1], args[2]);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            new SingleInstanceApp().Run(args);
+            try { new SingleInstanceApp().Run(UpdateInstaller.ConsumeRestartArguments(args)); return 0; }
+            catch (Exception error) { MessageBox.Show("无法启动摸鱼：" + error.Message, "摸鱼", MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
         }
     }
 
@@ -77,6 +79,7 @@ namespace WindowsFish
         internal string Scene = "win11";
         internal string Palette = "auto";
         internal int TextSize = 1;
+        internal string ExitPattern = "27";
         internal static readonly string FilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Moyu", "settings.xml");
 
@@ -92,6 +95,9 @@ namespace WindowsFish
                 int textSize;
                 string scene = (string)root.Attribute("scene");
                 string palette = (string)root.Attribute("palette");
+                Keys[] exitKeys;
+                string exitPattern = (string)root.Attribute("exitPattern");
+                if (ExitBinding.TryParse(exitPattern, out exitKeys)) settings.ExitPattern = exitPattern;
                 if (scene == "win10" || scene == "win11") settings.Scene = scene;
                 if (palette == "auto" || palette == "black" || palette == "blue" || palette == "light") settings.Palette = palette;
                 if (int.TryParse((string)root.Attribute("textSize"), out textSize) && textSize >= 0 && textSize <= 2) settings.TextSize = textSize;
@@ -137,7 +143,7 @@ namespace WindowsFish
 
         internal XElement ToXml()
         {
-            return new XElement("preferences", new XAttribute("schema", 2), new XAttribute("mode", Mode),
+            return new XElement("preferences", new XAttribute("schema", 3), new XAttribute("mode", Mode), new XAttribute("exitPattern", ExitPattern),
                 new XAttribute("blackoutSecondary", BlackoutSecondary), new XAttribute("speed", Speed),
                 new XAttribute("closeToTray", CloseToTray), new XAttribute("startWithWindows", StartWithWindows),
                 new XAttribute("hotkey", Hotkey), new XAttribute("dismissStartMenu", DismissStartMenu), new XAttribute("startMenuSeconds", StartMenuSeconds),
@@ -216,6 +222,7 @@ namespace WindowsFish
                 if (!IsHandleCreated) CreateHandle();
                 base.SetVisibleCore(false);
                 ApplyArguments(StartupArguments);
+                UpdateInstaller.MarkReady();
                 return;
             }
             base.SetVisibleCore(value);
@@ -225,12 +232,15 @@ namespace WindowsFish
         {
             base.OnShown(e);
             if (!startupHandled) { startupHandled = true; ApplyArguments(StartupArguments); }
+            UpdateInstaller.MarkReady();
+            if (!string.IsNullOrEmpty(UpdateInstaller.StartupFailure)) saveWarning.Text = UpdateInstaller.StartupFailure;
         }
 
         public void Reveal()
         {
             if (launchPrompt != null) { launchPrompt.Activate(); NativeDesktop.Foreground(launchPrompt.Handle); return; }
             if (settingsWindow != null) { settingsWindow.Activate(); NativeDesktop.Foreground(settingsWindow.Handle); return; }
+            if (updateWindow != null) { updateWindow.Activate(); NativeDesktop.Foreground(updateWindow.Handle); return; }
             if (previewWindow != null && !previewWindow.IsDisposed) { previewWindow.Activate(); return; }
             if (fishMode != null) { fishMode.ActivatePrimary(); return; }
             Show();
@@ -246,6 +256,7 @@ namespace WindowsFish
         internal void ApplyArguments(string[] args)
         {
             if (Array.IndexOf(args, "--exit") >= 0) { ExitApplication(); return; }
+            if (args.Length == 1 && args[0] == "--silent") return;
             if (args.Length == 0 || fishMode != null || previewWindow != null) return;
             string mode = selectedMode.Id;
             int ignoredMinutes;
@@ -381,7 +392,7 @@ namespace WindowsFish
             title.ForeColor = Color.FromArgb(24, 24, 24);
             title.AutoSize = false;
             title.TextAlign = ContentAlignment.MiddleLeft;
-            title.SetBounds(110, 30, 200, 48);
+            title.SetBounds(110, 30, 160, 48);
             Controls.Add(title);
 
             var description = new Label();
@@ -392,6 +403,11 @@ namespace WindowsFish
             description.TextAlign = ContentAlignment.MiddleRight;
             description.SetBounds(550, 40, 120, 24);
             Controls.Add(description);
+            var checkUpdate = new Button { Text = "检查更新", FlatStyle = FlatStyle.Flat };
+            checkUpdate.FlatAppearance.BorderColor = Color.FromArgb(210, 218, 219);
+            checkUpdate.SetBounds(300, 35, 106, 34);
+            checkUpdate.Click += delegate { OpenUpdateDialog(); };
+            Controls.Add(checkUpdate);
             var more = new Button();
             more.Text = "更多设置";
             more.FlatStyle = FlatStyle.Flat;
@@ -606,7 +622,7 @@ namespace WindowsFish
         internal void StartLaunch(bool showPrompt)
         {
             if (fishMode != null) { fishMode.ActivatePrimary(); return; }
-            if (previewWindow != null || launchTimer != null || settingsWindow != null) return;
+            if (previewWindow != null || launchTimer != null || settingsWindow != null || updateWindow != null) return;
             launchClock = Stopwatch.StartNew();
             startButton.Text = "取消开始 · " + preferences.DelaySeconds;
             launchTimer = new Timer();
@@ -621,7 +637,7 @@ namespace WindowsFish
             launchTimer.Start();
             if (showPrompt)
             {
-                launchPrompt = new LaunchPrompt(preferences.Scene, selectedMode.DisplayName, preferences.DelaySeconds);
+                launchPrompt = new LaunchPrompt(preferences.Scene, selectedMode.DisplayName, preferences.DelaySeconds, preferences.ExitPattern);
                 launchPrompt.CancelRequested += delegate { CancelLaunch(); };
                 launchPrompt.StartRequested += delegate { CancelLaunch(); BeginSession(); };
                 launchPrompt.Show();
@@ -763,7 +779,7 @@ namespace WindowsFish
         }
     }
 
-    internal sealed class FishMode
+    internal sealed class FishMode : IMessageFilter
     {
         private readonly IntroForm owner;
         private readonly UpdateScreenMode screenMode;
@@ -779,12 +795,15 @@ namespace WindowsFish
         private readonly bool blackoutSecondary;
         private readonly double speedFactor;
         private readonly Preferences displayOptions;
+        private readonly ExitMatcher exitMatcher;
+        private bool filterAttached;
         internal Screen TargetScreen { get { return MonitorSelection.Resolve(Screen.AllScreens, displayOptions.Monitor); } }
         internal double AnimationSeconds { get { return elapsed == null ? 0D : elapsed.Elapsed.TotalSeconds; } }
 
         public FishMode(IntroForm owner, UpdateScreenMode screenMode, bool blackoutSecondary, double speedFactor, Preferences options)
         {
             displayOptions = options.Clone();
+            exitMatcher = new ExitMatcher(displayOptions.ExitPattern);
             this.owner = owner;
             this.screenMode = screenMode;
             this.blackoutSecondary = blackoutSecondary;
@@ -796,6 +815,8 @@ namespace WindowsFish
             Cursor.Hide();
             cursorHidden = true;
             elapsed = Stopwatch.StartNew();
+            Application.AddMessageFilter(this);
+            filterAttached = true;
 
             RebuildDisplays();
             displayTimer = new Timer();
@@ -831,6 +852,7 @@ namespace WindowsFish
         internal void RebuildDisplays()
         {
             if (closing) return;
+            exitMatcher.Reset();
             rebuilding = true;
             try
             {
@@ -852,6 +874,8 @@ namespace WindowsFish
                 form.KeyPreview = true;
                 form.ShowInTaskbar = target;
                 form.KeyDown += FullscreenKeyDown;
+                form.KeyUp += FullscreenKeyUp;
+                form.Activated += delegate { exitMatcher.Reset(); };
                 form.FormClosing += delegate(object sender, FormClosingEventArgs e)
                 {
                     if (!closing && !rebuilding && e.CloseReason == CloseReason.UserClosing)
@@ -890,6 +914,7 @@ namespace WindowsFish
             }
 
             closing = true;
+            if (filterAttached) { Application.RemoveMessageFilter(this); filterAttached = false; }
             if (displaySubscribed)
             {
                 SystemEvents.DisplaySettingsChanged -= DisplaySettingsChanged;
@@ -930,11 +955,25 @@ namespace WindowsFish
 
         private void FullscreenKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Escape)
+            if (exitMatcher.KeyDown(e.KeyData, elapsed.Elapsed.TotalMilliseconds))
             {
                 e.Handled = true;
+                e.SuppressKeyPress = true;
                 Stop();
             }
+        }
+
+        private void FullscreenKeyUp(object sender, KeyEventArgs e) { exitMatcher.KeyUp(e.KeyData); }
+
+        public bool PreFilterMessage(ref Message message)
+        {
+            IntPtr window = message.HWnd;
+            if (closing || !windows.Exists(w => w.IsHandleCreated && w.Handle == window)) return false;
+            Keys key = (Keys)message.WParam.ToInt32() | Control.ModifierKeys;
+            if (message.Msg == 0x0101 || message.Msg == 0x0105) { exitMatcher.KeyUp(key); return false; }
+            if (message.Msg != 0x0100 && message.Msg != 0x0104) return false;
+            if (exitMatcher.KeyDown(key, elapsed.Elapsed.TotalMilliseconds)) { Stop(); return true; }
+            return false;
         }
 
         private void FullscreenClosed(object sender, FormClosedEventArgs e)

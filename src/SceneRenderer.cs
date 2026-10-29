@@ -79,7 +79,7 @@ namespace WindowsFish
             float sweep = (float)(24 + 272 * ease);
             float rotation = (float)(seconds * 235 % 360) - 90;
             float radius = 17F * scale;
-            using (var pen = new Pen(ink, 2.5F * scale))
+            using (var pen = new Pen(ink, 4F * scale))
             {
                 pen.StartCap = pen.EndCap = LineCap.Round;
                 g.DrawArc(pen, cx - radius, cy - radius, radius * 2, radius * 2, rotation - sweep / 2, sweep);

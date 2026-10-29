@@ -7,6 +7,16 @@ These projects were reviewed for product ideas. No source code or assets were co
 Windowed preview and optional secondary-screen coverage are local additions.
 The animation is a local approximation, not an extracted Windows animation.
 
+## 0.5.0 Update Flow
+
+Reviewed on 2026-10-28:
+
+- https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28 : stable release metadata and latest release endpoint.
+- https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28 : release attachment URLs, size and digest.
+- https://learn.microsoft.com/en-us/dotnet/api/system.io.file.replace?view=netframework-4.8.1 : same-volume replacement with an original-file backup.
+
+The updater is locally implemented. HTTPS and SHA-256 provide transport/integrity checks; they are not an Authenticode publisher signature. Updates are opt-in and do not add analytics or import/export features. The original application icon is retained after the proposed replacement was rejected.
+
 ## 0.4.0 Desktop Integration and Win11 Animation
 
 Reviewed on 2026-10-26:

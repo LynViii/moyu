@@ -23,6 +23,11 @@ namespace WindowsFish
         private readonly CheckBox dismissStart = new CheckBox { Text = "伪装时自动收起开始菜单", AutoSize = true };
         private readonly NumericUpDown startSeconds = new NumericUpDown { Minimum = 1, Maximum = 30, Dock = DockStyle.Fill };
         private readonly List<string> monitorNames = new List<string>();
+        private readonly ComboBox exitChoice = Choice("Esc", "连续两次 Esc", "↑ ↑ ↓ ↓ ← → ← →", "Ctrl+Alt+Q", "自定义按键");
+        private readonly ExitRecorder exitRecorder = new ExitRecorder();
+        private readonly Button recordExit = new Button { Text = "录制按键", Anchor = AnchorStyles.Left, Size = new Size(120, 32) };
+        private readonly Label exitError = new Label { AutoSize = true, ForeColor = Color.FromArgb(160, 45, 40), Dock = DockStyle.Fill };
+        private string recordedExit;
         internal Preferences Result { get; private set; }
 
         internal SettingsDialog(Preferences current)
@@ -72,6 +77,22 @@ namespace WindowsFish
             Row(resident, "关闭窗口", closeToTray);
             Row(resident, "开机启动", startup);
             Row(resident, "快捷启动", hotkey);
+            Row(resident, "退出伪装", exitChoice);
+            Row(resident, "按键序列", exitRecorder);
+            Row(resident, "", recordExit);
+            Row(resident, "", exitError);
+            exitChoice.SelectedIndexChanged += delegate {
+                bool custom = exitChoice.SelectedIndex == 4;
+                recordExit.Enabled = custom;
+                exitRecorder.Recording = false;
+                recordExit.Text = "录制按键";
+                exitRecorder.Text = custom ? (recordedExit == null ? "尚未录制" : ExitBinding.Format(recordedExit)) : ExitBinding.Format(ExitBinding.Presets[Math.Max(0, exitChoice.SelectedIndex)]);
+                exitError.Text = "";
+            };
+            recordExit.Click += delegate {
+                if (!exitRecorder.Recording) { exitRecorder.Begin(); recordExit.Text = "完成录制"; exitError.Text = ""; }
+                else FinishRecording();
+            };
             var about = new TabPage("关于与更新");
             var text = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
                 Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, BackColor = BackColor };
@@ -79,8 +100,8 @@ namespace WindowsFish
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Changelog"))
                 if (stream != null) using (var reader = new StreamReader(stream)) log = reader.ReadToEnd();
             text.Text = "摸鱼 " + AppVersion.Value + "\r\n\r\n" +
-                "本地状态模拟工具，不执行真实更新或重启。\r\nWin11 使用圆弧，Win10 使用圆点；浅色为自定义主题。\r\n\r\n" +
-                "首页快捷键\r\nCtrl+1 / 2 / 3：选择状态\r\nCtrl+P：预览\r\nCtrl+Enter：开始\r\nCtrl+,：设置\r\nEsc：退出全屏或取消倒计时\r\n\r\n" + log.Replace("\r\n", "\n").Replace("\n", "\r\n");
+                "本地状态模拟工具，不执行 Windows 系统更新或重启。\r\nWin11 使用圆弧，Win10 使用圆点；浅色为自定义主题。\r\n\r\n" +
+                "首页快捷键\r\nCtrl+1 / 2 / 3：选择状态\r\nCtrl+P：预览\r\nCtrl+Enter：开始\r\nCtrl+,：设置\r\n退出伪装：" + ExitBinding.Format(current.ExitPattern) + "\r\nEsc：取消倒计时或关闭预览\r\n\r\n" + log.Replace("\r\n", "\n").Replace("\n", "\r\n");
             about.Padding = new Padding(16);
             about.Controls.Add(text);
             tabs.TabPages.Add(about);
@@ -92,7 +113,15 @@ namespace WindowsFish
             var apply = new Button { Text = "应用", Size = new Size(88, 36) };
             var cancel = new Button { Text = "取消", Size = new Size(88, 36), DialogResult = DialogResult.Cancel };
             var reset = new Button { Text = "恢复默认", Size = new Size(112, 36) };
-            apply.Click += delegate { Result = ReadOptions(); DialogResult = DialogResult.OK; Close(); };
+            apply.Click += delegate {
+                if (exitRecorder.Recording && !FinishRecording()) return;
+                string binding = exitChoice.SelectedIndex == 4 ? recordedExit : ExitBinding.Presets[exitChoice.SelectedIndex];
+                Keys[] keys;
+                if (!ExitBinding.TryParse(binding, out keys)) { ShowExitError("请录制至少两个按键，或带 Ctrl/Alt 的组合键。"); return; }
+                if (hotkey.SelectedIndex > 0 && Array.IndexOf(keys, ExitBinding.LaunchKey(hotkey.SelectedIndex)) >= 0)
+                { ShowExitError("退出按键与快捷启动冲突，请更换。"); return; }
+                Result = ReadOptions(); DialogResult = DialogResult.OK; Close();
+            };
             reset.Click += delegate {
                 if (MessageBox.Show(this, "恢复所有默认选项？点击应用后生效。", "恢复默认", MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question) == DialogResult.Yes) ResetDraft();
@@ -189,6 +218,32 @@ namespace WindowsFish
             startSeconds.Value = draft.StartMenuSeconds;
             startSeconds.Enabled = dismissStart.Checked;
             eco.Checked = draft.EcoMode;
+            int preset = Array.IndexOf(ExitBinding.Presets, draft.ExitPattern);
+            recordedExit = preset < 0 ? draft.ExitPattern : null;
+            exitChoice.SelectedIndex = preset < 0 ? 4 : preset;
+            recordExit.Enabled = preset < 0;
+            exitRecorder.Text = ExitBinding.Format(draft.ExitPattern);
+            exitRecorder.Recording = false;
+            recordExit.Text = "录制按键";
+            exitError.Text = "";
+        }
+
+        private bool FinishRecording()
+        {
+            Keys[] keys;
+            if (!ExitBinding.TryParse(exitRecorder.Binding, out keys)) { ShowExitError("请录制至少两个按键，或带 Ctrl/Alt 的组合键。"); return false; }
+            recordedExit = exitRecorder.Binding;
+            exitRecorder.Recording = false;
+            recordExit.Text = "重新录制";
+            exitError.Text = "";
+            return true;
+        }
+
+        private void ShowExitError(string message)
+        {
+            exitError.Text = message;
+            var page = exitError.Parent.Parent as TabPage;
+            if (page != null) { ((TabControl)page.Parent).SelectedTab = page; page.ScrollControlIntoView(exitError); }
         }
 
         internal void ResetDraft() { draft = new Preferences(); FillOptions(); }
@@ -208,6 +263,7 @@ namespace WindowsFish
             result.DismissStartMenu = dismissStart.Checked;
             result.StartMenuSeconds = (int)startSeconds.Value;
             result.EcoMode = eco.Checked;
+            result.ExitPattern = exitChoice.SelectedIndex == 4 ? recordedExit ?? draft.ExitPattern : ExitBinding.Presets[exitChoice.SelectedIndex];
             return result;
         }
     }
