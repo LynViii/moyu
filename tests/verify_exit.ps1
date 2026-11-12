@@ -53,6 +53,8 @@ try{
     $form.Show();Call $form BeginSession @()|Out-Null;Pump 80
     $session=Get $form fishMode;$windows=Get $session windows
     $window=@($windows|Where-Object{$_.GetType().Name -eq 'UpdateForm'})[0]
+    $message=[Windows.Forms.Message]::Create($window.Handle,0x000F,[IntPtr]([long]::MaxValue),[IntPtr]::Zero)
+    if(Call $session PreFilterMessage ([object[]]@($message))){throw 'Keyboard filter consumed a non-keyboard message'}
     Tap $window 27
     if($null -eq (Get $form fishMode)){throw 'Esc exited a custom-bound session'}
     foreach($key in @(38,40,37,39)){Tap $window $key}

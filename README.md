@@ -1,6 +1,6 @@
 # 摸鱼
 
-Windows 桌面状态模拟工具，当前版本 **0.5.0**。
+Windows 桌面状态模拟工具，当前版本 **0.5.1**。本轮性能复查后本地封存，后续接管见 [接管说明](docs/HANDOFF.md)。
 
 ## 使用
 
@@ -78,6 +78,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\run_all.ps1
 ```
 
 ## 验证与限制
+
+0.5.1 的功能复查见 [验证记录](docs/VALIDATION_0.5.1.md)，资源测量方法与实际数据见 [性能报告](docs/PERFORMANCE_0.5.1.md)。本地封存保留完整 Git 历史和可离线构建的源码，不等于停用程序，也不将 GitHub 仓库变为只读。
 
 0.5.0 的更新助手、可自定义退出按键及完整回归结果见 [本轮验证](docs/VALIDATION_0.5.0.md)。应用更新不等于 Windows 系统更新；HTTPS、SHA-256 与产品信息校验也不等于发布者数字签名。图标沿用原版，未采用被否定的生成图标提案。
 

@@ -967,11 +967,14 @@ namespace WindowsFish
 
         public bool PreFilterMessage(ref Message message)
         {
+            bool down = message.Msg == 0x0100 || message.Msg == 0x0104;
+            bool up = message.Msg == 0x0101 || message.Msg == 0x0105;
+            if (!down && !up) return false;
             IntPtr window = message.HWnd;
             if (closing || !windows.Exists(w => w.IsHandleCreated && w.Handle == window)) return false;
-            Keys key = (Keys)message.WParam.ToInt32() | Control.ModifierKeys;
-            if (message.Msg == 0x0101 || message.Msg == 0x0105) { exitMatcher.KeyUp(key); return false; }
-            if (message.Msg != 0x0100 && message.Msg != 0x0104) return false;
+            Keys key = (Keys)message.WParam.ToInt32();
+            if (up) { exitMatcher.KeyUp(key); return false; }
+            key |= Control.ModifierKeys;
             if (exitMatcher.KeyDown(key, elapsed.Elapsed.TotalMilliseconds)) { Stop(); return true; }
             return false;
         }
@@ -1008,6 +1011,10 @@ namespace WindowsFish
         private readonly Font statusFont;
         private readonly Color ink;
         private readonly string scene;
+        private readonly BufferedGraphicsContext animationBuffer = new BufferedGraphicsContext();
+        private BufferedGraphics spinnerBuffer;
+        private readonly SolidBrush backgroundBrush;
+        private bool bufferSpinner;
 
         public UpdateForm(FishMode mode, UpdateScreenMode screenMode)
             : this(mode, screenMode, 1D) { }
@@ -1024,25 +1031,41 @@ namespace WindowsFish
             scene = options.Scene;
             BackColor = SceneRenderer.Background(options);
             ink = options.Palette == "light" ? Color.FromArgb(30, 33, 38) : Color.White;
-            DoubleBuffered = true;
+            backgroundBrush = new SolidBrush(BackColor);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
             Icon = AppIcon.Load();
             ResizeRedraw = true;
 
             timer = new AnimationTimer(this, delegate { TimerTick(this, EventArgs.Empty); });
-            timer.Interval = options.EcoMode ? 50 : 15;
+            SetEcoMode(options.EcoMode);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
 
-            e.Graphics.Clear(BackColor);
             double seconds = (mode == null ? previewClock.Elapsed.TotalSeconds : mode.AnimationSeconds) * speedFactor;
             if (LastLayout != null && e.ClipRectangle == spinnerBounds)
             {
-                SceneRenderer.DrawSpinner(e.Graphics, LastLayout.Center.X, LastLayout.Center.Y, LastLayout.Scale, ink, seconds, scene);
+                if (!bufferSpinner)
+                {
+                    e.Graphics.Clear(BackColor);
+                    SceneRenderer.DrawSpinner(e.Graphics, LastLayout.Center.X, LastLayout.Center.Y, LastLayout.Scale, ink, seconds, scene);
+                    return;
+                }
+                // Only the small moving region needs a persistent back buffer.
+                if (spinnerBuffer == null)
+                {
+                    animationBuffer.MaximumBuffer = new Size(spinnerBounds.Width + 1, spinnerBounds.Height + 1);
+                    spinnerBuffer = animationBuffer.Allocate(e.Graphics, spinnerBounds);
+                }
+                spinnerBuffer.Graphics.FillRectangle(backgroundBrush, spinnerBounds);
+                SceneRenderer.DrawSpinner(spinnerBuffer.Graphics, LastLayout.Center.X, LastLayout.Center.Y, LastLayout.Scale, ink, seconds, scene);
+                spinnerBuffer.Render(e.Graphics);
                 return;
             }
+            ReleaseSpinnerBuffer();
+            e.Graphics.FillRectangle(backgroundBrush, e.ClipRectangle);
             LastLayout = SceneRenderer.Draw(e.Graphics, ClientSize, screenMode, statusFont, ink, seconds, scene);
             spinnerBounds = LastLayout.Spinner;
         }
@@ -1055,10 +1078,22 @@ namespace WindowsFish
 
         protected override void OnResize(EventArgs e)
         {
+            ReleaseSpinnerBuffer();
             LastLayout = null;
             spinnerBounds = Rectangle.Empty;
             base.OnResize(e);
             if (timer != null) timer.Enabled = Visible && WindowState != FormWindowState.Minimized;
+        }
+
+        private void ReleaseSpinnerBuffer()
+        {
+            if (spinnerBuffer != null) { spinnerBuffer.Dispose(); spinnerBuffer = null; }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            ReleaseSpinnerBuffer();
+            base.OnHandleDestroyed(e);
         }
 
         protected override void Dispose(bool disposing)
@@ -1066,6 +1101,9 @@ namespace WindowsFish
             if (disposing)
             {
                 if (timer != null) { timer.Stop(); timer.Dispose(); }
+                ReleaseSpinnerBuffer();
+                animationBuffer.Dispose();
+                backgroundBrush.Dispose();
                 statusFont.Dispose();
             }
             base.Dispose(disposing);
@@ -1078,7 +1116,17 @@ namespace WindowsFish
             Update();
         }
 
-        internal void SetEcoMode(bool enabled) { timer.Interval = enabled ? 50 : 15; }
+        internal void SetEcoMode(bool enabled)
+        {
+            // Keep the established dot/eco path; the arc fast path is measured independently.
+            bufferSpinner = scene == "win11" && !enabled;
+            DoubleBuffered = !bufferSpinner;
+            SetStyle(ControlStyles.Opaque, bufferSpinner);
+            timer.NativeDispatch = bufferSpinner;
+            timer.Interval = enabled ? 50 : 15;
+            ReleaseSpinnerBuffer();
+            Invalidate();
+        }
 
     }
 
